@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+gradio
+pydantic
+pandas
+numpy
+torch
+transformers
+sentence-transformers
+faiss-cpu
+camel-tools
+scikit-learn
+matplotlib
+python-dotenv
+requests
