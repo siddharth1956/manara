@@ -1,15 +1,28 @@
+# Backend
 fastapi
 uvicorn
-gradio
 pydantic
+python-dotenv
+requests
+
+# Frontend
+streamlit
+plotly
+folium
+streamlit-folium
+
+# Data
 pandas
 numpy
+scikit-learn
+matplotlib
+
+# AI / NLP
 torch
 transformers
 sentence-transformers
 faiss-cpu
 camel-tools
-scikit-learn
-matplotlib
-python-dotenv
-requests
+
+# Optional (used by many geospatial apps)
+networkx
