@@ -1,11 +1,21 @@
+from pathlib import Path
 import pandas as pd
+
+DATA = Path("data/processed/dubai_roads.csv")
 
 
 def load_roads():
 
-    return pd.read_csv(
-        "data/processed/dubai_roads.csv"
-    )
+    if not DATA.exists():
+
+        return pd.DataFrame(
+            columns=[
+                "length",
+                "highway"
+            ]
+        )
+
+    return pd.read_csv(DATA)
 
 
 def total_roads():
@@ -17,12 +27,18 @@ def total_length():
 
     df = load_roads()
 
+    if df.empty:
+        return 0
+
     return round(df["length"].sum(), 2)
 
 
 def road_types():
 
     df = load_roads()
+
+    if df.empty:
+        return 0
 
     return df["highway"].astype(str).nunique()
 
@@ -36,28 +52,37 @@ def highway_distribution():
 
     df = load_roads()
 
-    # Remove missing values
+    if df.empty:
+
+        return pd.DataFrame(
+            columns=[
+                "Road Type",
+                "Count"
+            ]
+        )
+
     df = df.dropna(subset=["highway"])
 
-    # Convert to string
     df["highway"] = df["highway"].astype(str)
 
-    # Remove brackets and quotes
     df["highway"] = (
         df["highway"]
-            .str.replace("[", "", regex=False)
-            .str.replace("]", "", regex=False)
-            .str.replace("'", "", regex=False)
+        .str.replace("[", "", regex=False)
+        .str.replace("]", "", regex=False)
+        .str.replace("'", "", regex=False)
     )
 
-    # If multiple road types exist, keep only the first one
-    df["highway"] = df["highway"].str.split(",").str[0].str.strip()
+    df["highway"] = (
+        df["highway"]
+        .str.split(",")
+        .str[0]
+        .str.strip()
+    )
 
-    # Count road types
     chart = (
         df["highway"]
-          .value_counts()
-          .reset_index()
+        .value_counts()
+        .reset_index()
     )
 
     chart.columns = [
