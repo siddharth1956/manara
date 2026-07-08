@@ -26,10 +26,9 @@ camel-tools
 
 
 # Geospatial
-geopandas
+
 shapely
-pyproj
-fiona
+
 folium
 streamlit-folium
 networkx
