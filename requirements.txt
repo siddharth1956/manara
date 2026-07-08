@@ -24,5 +24,12 @@ sentence-transformers
 faiss-cpu
 camel-tools
 
-# Optional (used by many geospatial apps)
+
+# Geospatial
+geopandas
+shapely
+pyproj
+fiona
+folium
+streamlit-folium
 networkx
