@@ -1,3 +1,5 @@
+import os
+
 import ollama
 
 from app.llm.base import BaseLLM
@@ -7,7 +9,12 @@ class LlamaClient(BaseLLM):
 
     def __init__(self):
 
-        self.model = "llama3.2:3b"
+        # Overridable per-environment rather than hardcoded: the
+        # deployed Railway container swaps to the 1b variant to fit
+        # its available memory (see Dockerfile) — local development
+        # keeps using the 3b model this file's generation parameters
+        # were actually calibrated against, unchanged.
+        self.model = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
 
     def generate(self, prompt):
 

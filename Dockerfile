@@ -22,13 +22,18 @@ WORKDIR /app
 COPY requirements-prod.txt .
 RUN pip install --no-cache-dir -r requirements-prod.txt
 
-# Bake the model into the image so a fresh container starts fast and
-# doesn't depend on network access at runtime — entrypoint.sh also
-# checks for it defensively in case a platform strips this layer.
+# llama3.2:1b, not the 3b this project's prompt/generation tuning was
+# actually calibrated against — swapped specifically to fit this
+# deployment's available container memory (Ollama + embeddings + FAISS
+# + pandas simultaneously exceeded it with 3b, confirmed via an
+# isolated trivial-container test that ruled out any other cause).
+# OLLAMA_MODEL below must match what's pulled here.
 RUN (ollama serve &) && \
     sleep 5 && \
-    ollama pull llama3.2:3b && \
+    ollama pull llama3.2:1b && \
     (pkill ollama || true)
+
+ENV OLLAMA_MODEL=llama3.2:1b
 
 COPY app/ ./app/
 

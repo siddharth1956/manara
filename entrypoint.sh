@@ -23,12 +23,13 @@ else
     echo "[entrypoint] WARNING: ollama not reachable after 30s, proceeding anyway"
 fi
 
-echo "[entrypoint] checking for llama3.2:3b"
-if ollama list | grep -q "llama3.2:3b"; then
+MODEL="${OLLAMA_MODEL:-llama3.2:3b}"
+echo "[entrypoint] checking for $MODEL"
+if ollama list | grep -q "$MODEL"; then
     echo "[entrypoint] model already present"
 else
     echo "[entrypoint] model missing, pulling now (this will be slow)"
-    ollama pull llama3.2:3b
+    ollama pull "$MODEL"
 fi
 
 echo "[entrypoint] starting uvicorn on port ${PORT:-8000}"
