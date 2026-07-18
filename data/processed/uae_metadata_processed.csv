@@ -1,0 +1,4 @@
+tile_id,region,date,ndvi,cloud_cover,latitude,longitude,text
+T40QCH,Sharjah,2025-04-12,0.71,5,25.35,55.4,"Region: Sharjah, Date: 2025-04-12, NDVI: 0.71, Cloud Cover: 5%, Latitude: 25.35, Longitude: 55.4"
+T40QCI,Dubai,2025-04-13,0.62,8,25.2,55.27,"Region: Dubai, Date: 2025-04-13, NDVI: 0.62, Cloud Cover: 8%, Latitude: 25.2, Longitude: 55.27"
+T40QCJ,Abu Dhabi,2025-04-15,0.48,3,24.45,54.38,"Region: Abu Dhabi, Date: 2025-04-15, NDVI: 0.48, Cloud Cover: 3%, Latitude: 24.45, Longitude: 54.38"

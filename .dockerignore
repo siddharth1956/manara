@@ -1,0 +1,22 @@
+# Keeps the build context (and upload to Railway) small — the
+# Dockerfile COPYs only the specific small data files it needs, not
+# these directories.
+.git
+manara/
+web/node_modules/
+web/dist/
+cache/
+data/raw/
+data/cache/
+data/processed/
+!data/processed/search_corpus.csv
+data/embeddings/
+!data/embeddings/faiss_index.bin
+!data/embeddings/bm25_index.pkl
+evaluation/
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/
+*.log

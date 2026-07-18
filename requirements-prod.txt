@@ -1,0 +1,28 @@
+# Production dependencies for the FastAPI backend only (app/main.py and
+# everything it actually imports at request time). Deliberately
+# separate from requirements.txt, which also covers the data pipeline
+# (scripts/) and an old Streamlit frontend no longer in use — see
+# CLAUDE.md. Kept lean so the Docker image builds reliably and stays
+# small; add here only if app/main.py's import chain actually needs it.
+
+fastapi
+uvicorn[standard]
+pydantic
+
+pandas
+faiss-cpu
+sentence-transformers
+torch
+transformers
+
+# Arabic normalization/tokenization (app/services/arabic/normalizer.py,
+# tokenizer.py).
+camel-tools
+
+# Not imported by name anywhere — pickle.load() on bm25_index.pkl still
+# needs this importable to reconstruct the BM25Okapi object.
+rank_bm25
+
+# app/llm/llama_client.py talks to the Ollama daemon running inside the
+# same container (see Dockerfile) over its local HTTP API.
+ollama

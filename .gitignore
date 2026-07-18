@@ -29,8 +29,16 @@ models/
 # Ollama
 ollama/
 
-# Embeddings
-data/embeddings/
+# Embeddings — data/embeddings/faiss_index.bin and bm25_index.pkl
+# (the two prebuilt indexes retriever.py actually loads at request
+# time) are deliberately NOT listed here, so they stay tracked; only
+# the raw embeddings.npy (a build-time intermediate, not read at
+# request time) is excluded. Explicit-exclude rather than
+# wildcard-then-negate — verified that `data/embeddings/*` +
+# `!data/embeddings/faiss_index.bin` does NOT reliably re-include the
+# file with this git version, despite being git's textbook documented
+# pattern for this.
+data/embeddings/embeddings.npy
 cache/
 
 # Generated evaluation files
@@ -46,10 +54,19 @@ evaluation/*.txt
 # Logs
 *.log
 
-# Large datasets
+# Large datasets — these are data-pipeline intermediates (see
+# CLAUDE.md's data pipeline section), never read at request time by
+# the deployed backend, which only loads data/processed/search_corpus.csv
+# (844KB — deliberately NOT excluded here, unlike these).
 data/raw/
-data/processed/
+data/processed/manara_dataset.csv
+data/processed/dubai_roads.csv
+data/processed/dubai_roads.geojson
 
 # Keep directory structure
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+
+# Stale nested checkout — its own separate git repo, not part of this
+# project (see CLAUDE.md's repo layout note).
+manara/

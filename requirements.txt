@@ -23,6 +23,7 @@ transformers
 sentence-transformers
 faiss-cpu
 camel-tools
+rank_bm25
 
 
 # Geospatial
