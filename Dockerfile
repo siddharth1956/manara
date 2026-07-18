@@ -4,16 +4,15 @@
 # reachable at low latency from app/llm/llama_client.py, and running
 # them as one Railway service avoids inter-service networking config
 # for what is, on this model size, a genuinely single-workload deploy.
-#
-# NOT build-tested locally — Docker isn't installed in the dev
-# environment this was written in. Railway (or `docker build .`
-# wherever Docker is available) will be the first real build; see the
-# deployment guide for what to check if it fails.
 
 FROM python:3.10-slim
 
+# zstd is required by Ollama's install.sh for extraction — confirmed
+# via a real Railway build failure ("This version requires zstd for
+# extraction") on python:3.10-slim, which doesn't include it by default.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    zstd \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://ollama.com/install.sh | sh
