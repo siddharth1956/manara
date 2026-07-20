@@ -1,6 +1,5 @@
-# Keeps the build context (and upload to Railway) small — the
-# Dockerfile COPYs only the specific small data files it needs, not
-# these directories.
+# Keeps the build context small — the Dockerfile COPYs only the
+# specific small data files it needs, not these directories.
 .git
 manara/
 web/node_modules/

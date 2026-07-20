@@ -1,39 +1,18 @@
-# MANARA backend — FastAPI + the retrieval/generation pipeline, with
-# Ollama running as a second process in the same container (see
-# entrypoint.sh). Single container by design: Ollama has to be
-# reachable at low latency from app/llm/llama_client.py, and running
-# them as one Railway service avoids inter-service networking config
-# for what is, on this model size, a genuinely single-workload deploy.
+# MANARA backend — FastAPI + the retrieval/generation pipeline.
+#
+# No Ollama here (unlike earlier revisions of this file) — the
+# deployed instance uses Groq's free hosted inference API instead
+# (app/llm/groq_client.py, selected by router.py when GROQ_API_KEY is
+# set) specifically because self-hosting Ollama's multi-GB memory
+# footprint doesn't fit any genuinely free, no-card hosting platform.
+# Local development is unaffected and keeps using Ollama directly.
 
 FROM python:3.10-slim
-
-# zstd is required by Ollama's install.sh for extraction — confirmed
-# via a real Railway build failure ("This version requires zstd for
-# extraction") on python:3.10-slim, which doesn't include it by default.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    zstd \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN curl -fsSL https://ollama.com/install.sh | sh
 
 WORKDIR /app
 
 COPY requirements-prod.txt .
 RUN pip install --no-cache-dir -r requirements-prod.txt
-
-# llama3.2:1b, not the 3b this project's prompt/generation tuning was
-# actually calibrated against — swapped specifically to fit this
-# deployment's available container memory (Ollama + embeddings + FAISS
-# + pandas simultaneously exceeded it with 3b, confirmed via an
-# isolated trivial-container test that ruled out any other cause).
-# OLLAMA_MODEL below must match what's pulled here.
-RUN (ollama serve &) && \
-    sleep 5 && \
-    ollama pull llama3.2:1b && \
-    (pkill ollama || true)
-
-ENV OLLAMA_MODEL=llama3.2:1b
 
 COPY app/ ./app/
 
@@ -44,10 +23,6 @@ COPY data/processed/search_corpus.csv ./data/processed/search_corpus.csv
 COPY data/embeddings/faiss_index.bin ./data/embeddings/faiss_index.bin
 COPY data/embeddings/bm25_index.pkl ./data/embeddings/bm25_index.pkl
 
-COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
-
-ENV OLLAMA_HOST=127.0.0.1:11434
 EXPOSE 8000
 
-ENTRYPOINT ["./entrypoint.sh"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

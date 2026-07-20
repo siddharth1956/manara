@@ -23,6 +23,12 @@ camel-tools
 # needs this importable to reconstruct the BM25Okapi object.
 rank_bm25
 
-# app/llm/llama_client.py talks to the Ollama daemon running inside the
-# same container (see Dockerfile) over its local HTTP API.
+# app/llm/llama_client.py's import of this must succeed even in the
+# deployed container, which doesn't run an actual Ollama daemon
+# (see Dockerfile/groq_client.py) — the package itself is a tiny HTTP
+# client wrapper, not the model runtime, so keeping it costs nothing.
 ollama
+
+# app/llm/groq_client.py — only actually used when GROQ_API_KEY is set
+# (the deployed environment); see router.py.
+groq

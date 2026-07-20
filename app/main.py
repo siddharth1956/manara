@@ -39,7 +39,7 @@ app = FastAPI(
 # Locally, Vite's dev proxy (see web/vite.config.ts) means the browser
 # never makes a cross-origin request at all, so this has never been
 # needed before now. In production the frontend and backend are on
-# different domains (e.g. a Vercel URL calling a Railway URL), which
+# different domains (e.g. a Vercel URL calling a Render URL), which
 # does need it. ALLOWED_ORIGINS lets the deployed frontend's real URL
 # be configured without a code change; the dev server origins are
 # always allowed so local development keeps working unchanged.
