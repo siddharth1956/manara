@@ -22,9 +22,26 @@ class IntentClassifier:
             "copernicus"
         ]
 
+        # Canonical metric categories, checked before self.metrics below —
+        # so a synonym like "greener" or "cloud coverage" normalizes to
+        # the same value retriever.py's normalize_metric() already
+        # recognizes ("vegetation" / "cloud cover"), regardless of which
+        # exact word the user used. Kept separate from the aggregation
+        # operators in self.metrics (average/highest/...) so that
+        # existing behavior for those is untouched.
+        self.metric_synonyms = {
+            "cloud cover": [
+                "cloud", "cloud cover", "cloud coverage", "cloudy", "clouds"
+            ],
+            "vegetation": [
+                "vegetation", "ndvi", "greenery", "green cover", "greener",
+                "greenest", "healthier vegetation", "healthy vegetation",
+                "vegetation health", "crops", "forest", "forests",
+                "ecological", "environmental", "land cover"
+            ],
+        }
+
         self.metrics = [
-            "cloud",
-            "cloud cover",
             "average",
             "highest",
             "lowest",
@@ -88,7 +105,30 @@ class IntentClassifier:
             "number": 5,
             "how many": 6,
             "total": 5,
-            "cloud cover": 4
+            "cloud cover": 4,
+
+            # Vegetation/environmental — routes these to analytics instead
+            # of falling through to "general" (see conversation_router.py's
+            # vegetation short-circuit: the indexed corpus has zero
+            # vegetation/NDVI documents, confirmed by direct inspection,
+            # so these always get an honest "not indexed" response rather
+            # than a fabricated one — this fix is about routing, not
+            # answering).
+            "vegetation": 5,
+            "ndvi": 6,
+            "greenery": 5,
+            "green cover": 5,
+            "greener": 5,
+            "greenest": 5,
+            "healthier vegetation": 6,
+            "healthy vegetation": 6,
+            "vegetation health": 6,
+            "crops": 4,
+            "forest": 4,
+            "forests": 4,
+            "ecological": 4,
+            "environmental": 4,
+            "land cover": 4
 
         }
 
@@ -232,17 +272,37 @@ class IntentClassifier:
 
         # Metric
 
-        for metric in sorted(
-            self.metrics,
-            key=len,
-            reverse=True
-        ):
+        metric_found = False
 
-            if metric in q:
+        for canonical, synonyms in self.metric_synonyms.items():
 
-                entities["metric"] = metric
+            for synonym in sorted(synonyms, key=len, reverse=True):
+
+                if synonym in q:
+
+                    entities["metric"] = canonical
+
+                    metric_found = True
+
+                    break
+
+            if metric_found:
 
                 break
+
+        if not metric_found:
+
+            for metric in sorted(
+                self.metrics,
+                key=len,
+                reverse=True
+            ):
+
+                if metric in q:
+
+                    entities["metric"] = metric
+
+                    break
 
         # Date
 

@@ -41,10 +41,14 @@ export interface RetrievedDocument {
 
 /** Previous turn's intent/entities — lets the backend resolve a
  * follow-up like "What about Abu Dhabi?" without repeating the topic.
- * Optional; omitted entirely for a conversation's first message. */
+ * Optional; omitted entirely for a conversation's first message.
+ * mentionedLocations accumulates distinct locations across the last
+ * few turns (not just the immediately-preceding one), so "Compare
+ * both" can resolve without re-asking which cities. */
 export interface QueryContext {
   intent: Intent
   entities: QueryEntities
+  mentioned_locations?: string[]
 }
 
 export interface QueryRequest {

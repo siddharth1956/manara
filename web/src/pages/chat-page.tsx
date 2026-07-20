@@ -15,18 +15,42 @@ import type { QueryContext } from "@/types/api"
 
 const SIDEBAR_COLLAPSED_KEY = "manara-sidebar-collapsed"
 
+// How far back to look for mentioned_locations — enough for "Show
+// Dubai roads" -> "What about Abu Dhabi?" -> "Compare both." (3 user
+// turns = up to 6 messages including replies) without pulling in
+// cities from a much earlier, unrelated part of a long conversation.
+const RECENT_MESSAGES_LIMIT = 6
+
 // Lets a follow-up ("What about Abu Dhabi?") inherit the previous
 // turn's topic instead of the backend treating it as a fresh,
-// unrelated "general" query — see app/services/conversation_router.py.
+// unrelated "general" query, and lets "Compare both" resolve against
+// cities mentioned across recent turns instead of re-asking — see
+// app/services/conversation_router.py's resolve_followup /
+// resolve_comparison_subjects.
 function lastTurnContext(conversation: Conversation | null): QueryContext | undefined {
-  const messages = conversation?.messages ?? []
+  const messages = (conversation?.messages ?? []).slice(-RECENT_MESSAGES_LIMIT)
+
+  let lastIntent: QueryContext["intent"] | undefined
+  let lastEntities: QueryContext["entities"] | undefined
+  const mentionedLocations: string[] = []
+
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
-    if (message.role === "assistant" && message.meta) {
-      return { intent: message.meta.intent, entities: message.meta.entities }
+    if (message.role !== "assistant" || !message.meta) continue
+
+    if (!lastIntent) {
+      lastIntent = message.meta.intent
+      lastEntities = message.meta.entities
+    }
+
+    const location = message.meta.entities.location
+    if (location && !mentionedLocations.includes(location)) {
+      mentionedLocations.push(location)
     }
   }
-  return undefined
+
+  if (!lastIntent || !lastEntities) return undefined
+  return { intent: lastIntent, entities: lastEntities, mentioned_locations: mentionedLocations }
 }
 
 // Stable reference so an inactive conversation doesn't hand MessageList

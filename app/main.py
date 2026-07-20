@@ -1,13 +1,22 @@
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.services.retriever import retrieve
-from app.services.generator import generate_answer
+from app.services.generator import generate_answer, CONFIDENCE_LABEL
+from app.services.comparison_engine import (
+    extract_all_locations,
+    extract_all_satellites,
+    summarize_documents,
+    build_comparison_table,
+    comparison_intro,
+    display_name,
+)
+from app.services.geo_bounds import filter_by_emirate, is_known_location
 
 from app.services.nlu import IntentClassifier
 from app.services.arabic.pipeline import ArabicPipeline
@@ -17,10 +26,14 @@ from app.services.conversation_router import (
     chitchat_response,
     is_followup_query,
     resolve_followup,
+    is_vegetation_query,
+    vegetation_response,
     needs_clarification,
     clarification_response,
+    resolve_comparison_subjects,
     detect_landmark,
     confidence_bucket,
+    confidence_explanation,
 )
 
 
@@ -75,9 +88,13 @@ class QueryContext(BaseModel):
     """Optional — the previous turn's intent/entities, supplied by the
     frontend so a follow-up like "What about Abu Dhabi?" can inherit
     the topic of the prior message. Absent for a conversation's first
-    message, and safely ignored by any caller that doesn't send it."""
+    message, and safely ignored by any caller that doesn't send it.
+    mentioned_locations accumulates distinct locations across the last
+    few turns (not just the immediately-preceding one), so "Compare
+    both" can resolve without re-asking which cities."""
     intent: Optional[str] = None
     entities: Optional[Dict[str, Any]] = None
+    mentioned_locations: Optional[List[str]] = None
 
 
 class Query(BaseModel):
@@ -167,7 +184,27 @@ def query(data: Query):
             )
 
         # ==========================================
-        # Step 2b : Chit-chat short-circuit
+        # Step 2b : Vegetation/NDVI short-circuit
+        # ==========================================
+        # Checked regardless of intent (analytics or comparison both
+        # reach here) — the indexed corpus has zero vegetation/NDVI
+        # documents, confirmed by direct inspection, so this is always
+        # answered honestly rather than risking the LLM fabricating a
+        # comparison from irrelevant retrieved context.
+
+        if is_vegetation_query(entities):
+
+            return {
+                "question": data.question,
+                "language": language,
+                "intent": intent,
+                "entities": entities,
+                "answer": vegetation_response(language),
+                "sources": [],
+            }
+
+        # ==========================================
+        # Step 2c : Chit-chat short-circuit
         # ==========================================
         # Only reachable for queries the real NLU already scored as
         # "general" (no dataset keyword matched) — greetings, thanks,
@@ -188,12 +225,98 @@ def query(data: Query):
             }
 
         # ==========================================
-        # Step 2c : Comparison clarification
+        # Step 2d : Comparison routing
         # ==========================================
-        # "Compare both cities" names nothing to compare — ask rather
-        # than guess.
+        # entities["location"]/["satellite"] can only ever hold one
+        # value (see nlu.py) — extract_all_locations/satellites scans
+        # the raw query independently to find both sides of an actual
+        # comparison. Triggered on "2+ real subjects named", not on
+        # intent == "comparison" specifically — nlu.py's weighted
+        # scoring often classifies "Compare Sentinel-2A and Sentinel-2B"
+        # as satellite_search (satellite keywords outweigh the single
+        # "compare" word), so gating on the intent label alone would
+        # miss it.
+        #
+        # For locations: retrieve() once against the query with a pool
+        # large enough to cover the whole corpus (retriever.py scores
+        # every document internally regardless of k — this is free, not
+        # k extra work) then geographically filter by real bounding-box
+        # overlap (geo_bounds.py), NOT by asking retriever.py's
+        # text-based location boost to differentiate — confirmed by
+        # direct inspection that only 18 of 1900 road documents
+        # literally contain "Dubai" in their text and none contain
+        # "Abu Dhabi", so that boost essentially never fires for roads.
+        # For satellites, retriever.py's platform-field entity boost is
+        # reliable (a structured field, not free text), so two separate
+        # retrieve() calls work correctly there.
+        #
+        # The table itself is built entirely from these real, filtered
+        # documents (comparison_engine.py) — never from the LLM
+        # recalling/combining numbers itself. "Compare both cities" with
+        # nothing nameable still falls through to asking, same as before.
 
-        if needs_clarification(intent, entities):
+        locations = extract_all_locations(data.question)
+        satellites = extract_all_satellites(data.question)
+
+        # "Compare both" names nothing itself — resolve against cities
+        # mentioned across the last few turns (frontend-accumulated,
+        # not just the immediately-preceding message) before falling
+        # back to asking.
+        if data.context and data.context.mentioned_locations:
+
+            locations = resolve_comparison_subjects(
+                data.question, locations, data.context.mentioned_locations,
+            )
+
+        subjects = locations if len(locations) >= 2 else (
+            satellites if len(satellites) >= 2 else None
+        )
+
+        if subjects is locations:
+
+            pool = retrieve(query=data.question, intent=intent, entities=entities, k=5000)
+            docs_a = filter_by_emirate(pool, subjects[0])[:8]
+            docs_b = filter_by_emirate(pool, subjects[1])[:8]
+
+        elif subjects is satellites:
+
+            docs_a = retrieve(query=data.question, intent=intent, entities={**entities, "satellite": subjects[0]})
+            docs_b = retrieve(query=data.question, intent=intent, entities={**entities, "satellite": subjects[1]})
+
+        else:
+
+            docs_a = docs_b = None
+
+        if subjects:
+
+            label_a = display_name(subjects[0], language)
+            label_b = display_name(subjects[1], language)
+
+            table = build_comparison_table(
+                label_a, summarize_documents(docs_a),
+                label_b, summarize_documents(docs_b),
+                language,
+            )
+
+            answer = f"{comparison_intro(label_a, label_b, language)}\n\n{table}"
+
+            confidences = [d[0]["confidence"] for d in (docs_a, docs_b) if d]
+            if confidences:
+                bucket = confidence_bucket(min(confidences))
+                label = CONFIDENCE_LABEL[language][bucket]
+                explanation = confidence_explanation(bucket, language)
+                answer = f"{answer}\n\n*{label} — {explanation}*"
+
+            return {
+                "question": data.question,
+                "language": language,
+                "intent": intent,
+                "entities": entities,
+                "answer": answer,
+                "sources": docs_a + docs_b,
+            }
+
+        if intent == "comparison" and needs_clarification(intent, entities):
 
             return {
                 "question": data.question,
@@ -205,7 +328,7 @@ def query(data: Query):
             }
 
         # ==========================================
-        # Step 2d : Landmark detection
+        # Step 2e : Landmark detection
         # ==========================================
         # The indexed corpus has no landmark-level metadata — this only
         # fills in the containing city (for retrieval boosting) when the
@@ -234,6 +357,20 @@ def query(data: Query):
 
         top_confidence = documents[0]["confidence"] if documents else None
 
+        # One geographic conclusion, computed once, not inferred by the
+        # LLM mid-answer — this is what was producing self-contradicting
+        # responses ("no Sentinel coverage" followed later by "Dubai is
+        # covered"). Only meaningful for a known emirate; None otherwise,
+        # which generator.py treats as "not applicable" rather than
+        # "zero coverage".
+        location_coverage = None
+
+        if entities.get("location") and is_known_location(entities["location"]):
+
+            overlapping = len(filter_by_emirate(documents, entities["location"]))
+
+            location_coverage = (entities["location"], overlapping, len(documents))
+
         # ==========================================
         # Step 4 : Generate Answer
         # ==========================================
@@ -252,7 +389,9 @@ def query(data: Query):
 
             landmark=landmark[0] if landmark else None,
 
-            confidence=confidence_bucket(top_confidence),
+            confidence=confidence_bucket(top_confidence, len(documents), location_coverage),
+
+            location_coverage=location_coverage,
 
         )
 

@@ -1,4 +1,5 @@
 from app.llm.router import LLMRouter
+from app.services.conversation_router import confidence_explanation
 
 # ----------------------------------------
 # Initialize Router
@@ -60,6 +61,7 @@ def generate_answer(
     entities,
     landmark=None,
     confidence=None,
+    location_coverage=None,
 ):
     """
     Generate answer using the selected LLM.
@@ -100,13 +102,57 @@ def generate_answer(
         if not landmark_grounded:
 
             landmark_note = (
-                f'\nThe user asked about "{landmark}" specifically. The '
-                "indexed corpus has no landmark-level metadata for it — "
-                "only city-level coverage. Say plainly that this "
-                "landmark was searched but couldn't be grounded in the "
-                "indexed metadata, and describe the city-level data "
-                "shown in the context instead. Never invent coordinates "
-                "or metadata specific to the landmark itself."
+                f'\nThe user asked about "{landmark}" specifically. Walk '
+                "through the resolution process briefly and honestly: "
+                f'"{landmark}" was resolved to its containing city for '
+                "search purposes (the indexed corpus has no landmark-level "
+                "coordinates or search radius to match against — only "
+                "city-level bounding boxes). State plainly that no "
+                "document's bounding box was matched to this landmark "
+                "specifically, then describe the city-level data shown in "
+                "the context instead. Never invent coordinates, a search "
+                "radius, or a confidence figure for the landmark itself — "
+                "only the dataset-level confidence already given below "
+                "applies."
+            )
+
+    # Computed once in main.py from real bounding-box overlap, not
+    # inferred by the model mid-answer — this is what was producing
+    # self-contradicting responses ("no Sentinel coverage" followed
+    # later by "Dubai is covered"). Giving one explicit, already-decided
+    # fact removes the chance of the model reasoning its way to two
+    # different conclusions in the same response.
+    coverage_note = ""
+
+    if location_coverage:
+
+        loc_name, overlapping, total = location_coverage
+
+        if overlapping == 0:
+
+            coverage_note = (
+                f"\nFact you must treat as already settled (don't cite "
+                f"where this fact came from, don't name-check this "
+                f"instruction — just state the conclusion naturally, once, "
+                f"and never contradict it elsewhere in your answer): none "
+                f"of the {total} retrieved document(s) geographically "
+                f"overlap {loc_name}'s area. Say plainly that this "
+                f"location is not covered by the indexed data for this "
+                f"dataset type, rather than describing the retrieved "
+                f"documents as if they were about {loc_name}."
+            )
+
+        else:
+
+            coverage_note = (
+                f"\nFact you must treat as already settled (don't cite "
+                f"where this fact came from, don't name-check this "
+                f"instruction — just state the conclusion naturally, once, "
+                f"and never contradict it elsewhere in your answer): "
+                f"{overlapping} of the {total} retrieved document(s) "
+                f"genuinely overlap {loc_name}'s area, confirming real "
+                f"coverage. Do not claim there is no coverage for "
+                f"{loc_name}."
             )
 
     # Told explicitly, not left for the model to infer: an earlier
@@ -151,6 +197,8 @@ Rules:
 5. Prefer short bullet points over long paragraphs when listing more than one fact (road types, dates, cloud cover values, comparisons). Keep prose sections brief.
 6. Never combine numeric values (bounding boxes, cloud cover, counts) from DIFFERENT documents into one synthesized range or total unless the context explicitly states that combined figure. List each document's own values separately instead.
 7. Bounding boxes are [min_longitude, min_latitude, max_longitude, max_latitude] in decimal degrees. Reproduce them exactly as given in the context, attributed to their specific document — never paraphrase them into a prose geographic description (distances, compass directions, city extents), and never re-derive or estimate a bounding box that isn't literally present in the context.
+8. For cloud cover, capture dates, and similar single-document metadata fields (NOT bounding boxes — see Rule 7), narrate them as one plain sentence rather than listing raw field names. Example — instead of "Cloud Cover: 5% / Bounding Box: ...", write "The available Sentinel-2 scene captured on 5 July 2026 reports approximately 5% cloud cover, indicating relatively clear observation conditions." Every number in that sentence must still come from the context — this is about phrasing, not license to add detail that isn't there.
+{coverage_note}
 {landmark_note}
 -----------------------------------------------------
 Retrieved context ({len(documents)} source(s)):
@@ -184,6 +232,8 @@ Answer:
 
         label = CONFIDENCE_LABEL[language][confidence]
 
-        answer = f"{answer}\n\n*{label}*"
+        explanation = confidence_explanation(confidence, language)
+
+        answer = f"{answer}\n\n*{label} — {explanation}*"
 
     return answer

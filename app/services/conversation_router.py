@@ -327,16 +327,134 @@ def detect_landmark(text):
 
 
 # ----------------------------------------------------
-# Confidence bucketing — surfaced in the generated answer, derived from
-# the top retrieved document's confidence score (already computed by
-# retriever.py; this only labels it).
+# Vegetation/NDVI queries — deterministic short-circuit, not a prompt
+# rule. Confirmed by direct inspection that the indexed corpus (Sentinel-2
+# metadata + OpenStreetMap roads) contains zero documents mentioning
+# "vegetation" or "ndvi" — there is no data to ground an answer in, ever,
+# for this query type. Handling it as a hard short-circuit (like
+# chit-chat) rather than trusting the LLM to stay honest when handed
+# semantically-similar-but-irrelevant satellite/road context removes
+# the fabrication risk entirely rather than mitigating it.
 # ----------------------------------------------------
 
-def confidence_bucket(top_confidence):
+VEGETATION_METRIC_VALUES = {"vegetation", "النباتات", "الغطاء النباتي"}
+
+
+def is_vegetation_query(entities):
+    return entities.get("metric") in VEGETATION_METRIC_VALUES
+
+
+VEGETATION_RESPONSES = {
+    "english": (
+        "The current indexed dataset does not contain NDVI or vegetation "
+        "metrics, so I cannot accurately compare or assess vegetation "
+        "health. What's indexed instead is Sentinel-2 acquisition "
+        "metadata (cloud cover, capture dates, coverage areas) and "
+        "OpenStreetMap road network data — I can help with those, e.g. "
+        '"Show Dubai roads" or "Analyze cloud coverage over Abu Dhabi".'
+    ),
+    "arabic": (
+        "لا تحتوي البيانات المفهرسة حالياً على مؤشر NDVI أو مقاييس "
+        "الغطاء النباتي، لذا لا يمكنني تقييم أو مقارنة صحة الغطاء "
+        "النباتي بدقة. البيانات المتوفرة بدلاً من ذلك هي البيانات "
+        "الوصفية لصور الأقمار الصناعية سنتينل-2 (الغطاء السحابي، تواريخ "
+        "الالتقاط، مناطق التغطية) وبيانات شبكة الطرق من OpenStreetMap — "
+        'يمكنني مساعدتك بهذه البيانات، مثلاً "اعرض الطرق في دبي" أو '
+        '"حلل الغطاء السحابي في أبوظبي".'
+    ),
+}
+
+
+def vegetation_response(language):
+    return VEGETATION_RESPONSES[language]
+
+
+# ----------------------------------------------------
+# Referential comparisons — "Compare both", "Which city has better
+# coverage?", "Which one is greener?" — none name two subjects
+# themselves, but all refer back to whatever the conversation was
+# already comparing. Resolved against locations mentioned earlier,
+# supplied by the frontend as context.mentioned_locations (accumulated
+# across the last few turns, not just the immediately-preceding one —
+# see web/src/pages/chat-page.tsx). Only used as a fallback: a query
+# that already names two subjects itself is never overridden.
+# ----------------------------------------------------
+
+BOTH_PATTERN = re.compile(
+    r"\bboth\b|\bthem\b|\bthese two\b"
+    r"|\bwhich (city|one|area)\b|\bwhich of (them|these)\b"
+    r"|كلاهما|كلتا|كلا|أيهما|أي (مدينة|منطقة)",
+    re.IGNORECASE,
+)
+
+
+def is_both_reference(text):
+    return bool(BOTH_PATTERN.search(text))
+
+
+def resolve_comparison_subjects(question, locations, mentioned_locations):
+    """Returns (possibly-expanded) locations for the comparison engine
+    to use. Only touches `locations` when the query itself named fewer
+    than two and the query text refers back to "both"/"them"."""
+
+    if len(locations) >= 2:
+        return locations
+
+    if is_both_reference(question) and mentioned_locations and len(mentioned_locations) >= 2:
+        return mentioned_locations[:2]
+
+    return locations
+
+
+# ----------------------------------------------------
+# Confidence bucketing — the retrieval score alone is a weak signal in
+# isolation: a document can score well on text/semantic relevance while
+# being geographically the wrong place entirely (see main.py's
+# location_coverage check) or while being the only document found.
+# document_count and location_coverage are optional so existing call
+# sites (e.g. the comparison engine, which already reasons about
+# per-side confidence separately) keep working unchanged.
+# ----------------------------------------------------
+
+def confidence_bucket(top_confidence, document_count=None, location_coverage=None):
     if top_confidence is None:
         return "low"
-    if top_confidence >= 70:
+
+    score = top_confidence
+
+    if document_count is not None:
+        if document_count <= 1:
+            score -= 15
+        elif document_count < 3:
+            score -= 5
+
+    if location_coverage:
+        _, overlapping, total = location_coverage
+        if total and overlapping == 0:
+            score -= 30
+        elif total and overlapping < total:
+            score -= 10
+
+    if score >= 70:
         return "high"
-    if top_confidence >= 40:
+    if score >= 40:
         return "medium"
     return "low"
+
+
+CONFIDENCE_EXPLANATIONS = {
+    "english": {
+        "high": "strong retrieval match across multiple confirmed documents",
+        "medium": "moderate retrieval match — some fields or geographic coverage may be incomplete",
+        "low": "weak or geographically unconfirmed retrieval match",
+    },
+    "arabic": {
+        "high": "تطابق استرجاع قوي عبر عدة وثائق مؤكدة",
+        "medium": "تطابق استرجاع متوسط — قد تكون بعض الحقول أو التغطية الجغرافية غير مكتملة",
+        "low": "تطابق استرجاع ضعيف أو غير مؤكد جغرافياً",
+    },
+}
+
+
+def confidence_explanation(bucket, language):
+    return CONFIDENCE_EXPLANATIONS[language][bucket]
